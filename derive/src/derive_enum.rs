@@ -16,6 +16,49 @@ impl DeriveEnum {
         }
     }
 
+    fn add_variant_index(
+        &self,
+        builder: &mut StreamBuilder,
+        variant_index_token: Vec<TokenTree>,
+        variant: &EnumVariant,
+        variant_index: usize,
+    ) -> Result<()> {
+        if let Some(value) = &variant.value {
+            builder.extend(vec![TokenTree::Literal(value.clone())]);
+        } else {
+            // Try to find a variant before this one that has a literal value
+            let added_index = if variant_index > 0 {
+                let mut i = variant_index - 1;
+                loop {
+                    if i <= 0 {
+                        break false;
+                    }
+                    let previous_variant = match self.variants.get(i) {
+                        Some(v) => v,
+                        None => {
+                            break false;
+                        }
+                    };
+                    if let Some(value) = &previous_variant.value {
+                        use std::str::FromStr;
+                        let value_str = &value.span().source_text().unwrap_or("".to_string());
+                        if let Ok(value) = u32::from_str(value_str) {
+                            builder.push_parsed((value + 1).to_string())?;
+                            break true;
+                        }
+                    }
+                    i -= 1;
+                }
+            } else {
+                false
+            };
+            if !added_index {
+                builder.extend(variant_index_token);
+            }
+        }
+        Ok(())
+    }
+
     pub fn generate_encode(self, generator: &mut Generator) -> Result<()> {
         let crate_name = self.attributes.crate_name.as_str();
         generator
@@ -52,7 +95,7 @@ impl DeriveEnum {
                     if self.variants.is_empty() {
                         self.encode_empty_enum_case(match_body)?;
                     }
-                    for (variant_index, variant) in self.iter_fields() {
+                    for (variant_index_token, variant, variant_index) in self.iter_fields() {
                         // Self::Variant
                         match_body.ident_str("Self");
                         match_body.puncts("::");
@@ -93,8 +136,12 @@ impl DeriveEnum {
                             body.group(Delimiter::Parenthesis, |args| {
                                 args.punct('&');
                                 args.group(Delimiter::Parenthesis, |num| {
-                                    num.extend(variant_index);
-                                    Ok(())
+                                    self.add_variant_index(
+                                        num,
+                                        variant_index_token,
+                                        &variant,
+                                        variant_index,
+                                    )
                                 })?;
                                 args.punct(',');
                                 args.push_parsed("encoder")?;
@@ -191,11 +238,18 @@ impl DeriveEnum {
                     variant_inner.group(Delimiter::Parenthesis, |allowed_inner| {
                         allowed_inner.punct('&');
                         allowed_inner.group(Delimiter::Bracket, |allowed_slice| {
-                            for (idx, (ident, _)) in self.iter_fields().enumerate() {
+                            for (idx, (variant_index_token, variant, variant_index)) in
+                                self.iter_fields().enumerate()
+                            {
                                 if idx != 0 {
                                     allowed_slice.punct(',');
                                 }
-                                allowed_slice.extend(ident);
+                                self.add_variant_index(
+                                    allowed_slice,
+                                    variant_index_token,
+                                    variant,
+                                    variant_index,
+                                )?;
                             }
                             Ok(())
                         })?;
@@ -254,14 +308,12 @@ impl DeriveEnum {
                         ))?;
                     fn_builder.push_parsed("match variant_index")?;
                     fn_builder.group(Delimiter::Brace, |variant_case| {
-                        for (mut variant_index, variant) in self.iter_fields() {
+                        for (variant_index_token, variant, variant_index) in self.iter_fields() {
                             // idx => Ok(..)
-                            if variant_index.len() > 1 {
+                            if variant_index_token.len() > 1 {
                                 variant_case.push_parsed("x if x == ")?;
-                                variant_case.extend(variant_index);
-                            } else {
-                                variant_case.push(variant_index.remove(0));
                             }
+                            self.add_variant_index(variant_case, variant_index_token, variant, variant_index)?;
                             variant_case.puncts("=>");
                             variant_case.ident_str("Ok");
                             variant_case.group(Delimiter::Parenthesis, |variant_case_body| {
@@ -351,14 +403,12 @@ impl DeriveEnum {
                         .push_parsed(format!("let variant_index = <u32 as {}::Decode>::decode(decoder)?;", crate_name))?;
                     fn_builder.push_parsed("match variant_index")?;
                     fn_builder.group(Delimiter::Brace, |variant_case| {
-                        for (mut variant_index, variant) in self.iter_fields() {
+                        for (variant_index_token, variant, variant_index) in self.iter_fields() {
                             // idx => Ok(..)
-                            if variant_index.len() > 1 {
+                            if variant_index_token.len() > 1 {
                                 variant_case.push_parsed("x if x == ")?;
-                                variant_case.extend(variant_index);
-                            } else {
-                                variant_case.push(variant_index.remove(0));
                             }
+                            self.add_variant_index(variant_case, variant_index_token, variant, variant_index)?;
                             variant_case.puncts("=>");
                             variant_case.ident_str("Ok");
                             variant_case.group(Delimiter::Parenthesis, |variant_case_body| {
@@ -411,7 +461,7 @@ struct EnumVariantIterator<'a> {
 }
 
 impl<'a> Iterator for EnumVariantIterator<'a> {
-    type Item = (Vec<TokenTree>, &'a EnumVariant);
+    type Item = (Vec<TokenTree>, &'a EnumVariant, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         let idx = self.idx;
@@ -420,6 +470,6 @@ impl<'a> Iterator for EnumVariantIterator<'a> {
 
         let tokens = vec![TokenTree::Literal(Literal::u32_suffixed(idx as u32))];
 
-        Some((tokens, variant))
+        Some((tokens, variant, self.idx - 1))
     }
 }
