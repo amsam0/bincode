@@ -30,9 +30,6 @@ impl DeriveEnum {
             let added_index = if variant_index > 0 {
                 let mut i = variant_index - 1;
                 loop {
-                    if i <= 0 {
-                        break false;
-                    }
                     let previous_variant = match self.variants.get(i) {
                         Some(v) => v,
                         None => {
@@ -43,9 +40,12 @@ impl DeriveEnum {
                         use std::str::FromStr;
                         let value_str = &value.span().source_text().unwrap_or("".to_string());
                         if let Ok(value) = u32::from_str(value_str) {
-                            builder.push_parsed((value + 1).to_string())?;
+                            builder.push_parsed((value + (variant_index - i) as u32).to_string())?;
                             break true;
                         }
+                    }
+                    if i <= 0 {
+                        break false;
                     }
                     i -= 1;
                 }
