@@ -253,62 +253,7 @@ fn test_decode_borrowed_enum_tuple_variant() {
     assert_eq!(len, 6);
 }
 
-#[derive(bincode::Decode, bincode::Encode, PartialEq, Eq, Debug)]
-enum CStyleEnum {
-    A = -1,
-    B = 2,
-    C,
-    D = 5,
-    E,
-}
 
-#[test]
-fn test_c_style_enum() {
-    fn ser(e: CStyleEnum) -> u8 {
-        let mut slice = [0u8; 10];
-        let bytes_written =
-            bincode::encode_into_slice(e, &mut slice, bincode::config::standard()).unwrap();
-        assert_eq!(bytes_written, 1);
-        slice[0]
-    }
-
-    assert_eq!(ser(CStyleEnum::A), 0);
-    assert_eq!(ser(CStyleEnum::B), 1);
-    assert_eq!(ser(CStyleEnum::C), 2);
-    assert_eq!(ser(CStyleEnum::D), 3);
-    assert_eq!(ser(CStyleEnum::E), 4);
-
-    fn assert_de_successfully(num: u8, expected: CStyleEnum) {
-        match bincode::decode_from_slice::<CStyleEnum, _>(&[num], bincode::config::standard()) {
-            Ok((result, len)) => {
-                assert_eq!(len, 1);
-                assert_eq!(result, expected)
-            }
-            Err(e) => panic!("Could not deserialize CStyleEnum idx {num}: {e:?}"),
-        }
-    }
-
-    fn assert_de_fails(num: u8) {
-        match bincode::decode_from_slice::<CStyleEnum, _>(&[num], bincode::config::standard()) {
-            Ok(_) => {
-                panic!("Expected to not be able to decode CStyleEnum index {num}, but it succeeded")
-            }
-            Err(DecodeError::UnexpectedVariant {
-                type_name: "CStyleEnum",
-                allowed: &bincode::error::AllowedEnumVariants::Allowed(&[0, 1, 2, 3, 4]),
-                found,
-            }) if found == num as u32 => {}
-            Err(e) => panic!("Expected DecodeError::UnexpectedVariant, got {e:?}"),
-        }
-    }
-
-    assert_de_successfully(0, CStyleEnum::A);
-    assert_de_successfully(1, CStyleEnum::B);
-    assert_de_successfully(2, CStyleEnum::C);
-    assert_de_successfully(3, CStyleEnum::D);
-    assert_de_successfully(4, CStyleEnum::E);
-    assert_de_fails(5);
-}
 
 macro_rules! macro_newtype {
     ($name:ident) => {

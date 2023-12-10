@@ -37,12 +37,15 @@ impl DeriveEnum {
                         }
                     };
                     if let Some(value) = &previous_variant.value {
-                        use std::str::FromStr;
                         let value_str = &value.span().source_text().unwrap_or("".to_string());
-                        if let Ok(value) = u32::from_str(value_str) {
-                            builder.push_parsed((value + (variant_index - i) as u32).to_string())?;
+                        let eval = evalexpr::eval(&format!("{} + {}",value_str, (variant_index - i) as u32));
+                        if let Ok(eval) = eval
+                        {
+                            builder.push_parsed(eval.to_string())?;
                             break true;
                         }
+                        
+                        
                     }
                     if i <= 0 {
                         break false;
