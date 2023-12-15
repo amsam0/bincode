@@ -3,12 +3,13 @@ use crate::{
     config::{Endianness, IntEncoding, InternalEndianConfig, InternalIntEncodingConfig},
     error::EncodeError,
 };
+use core::cmp::Reverse;
 use core::{
     cell::{Cell, RefCell},
     marker::PhantomData,
     num::{
         NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
-        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
+        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize, Wrapping,
     },
     ops::{Bound, Range, RangeInclusive},
     time::Duration,
@@ -271,6 +272,18 @@ impl Encode for f64 {
             Endianness::Big => encoder.writer().write(&self.to_be_bytes()),
             Endianness::Little => encoder.writer().write(&self.to_le_bytes()),
         }
+    }
+}
+
+impl<T: Encode> Encode for Wrapping<T> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.0.encode(encoder)
+    }
+}
+
+impl<T: Encode> Encode for Reverse<T> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.0.encode(encoder)
     }
 }
 
